@@ -1,9 +1,13 @@
+const cluster = require('cluster');
+const os = require('os');
+const http = require('http');
 var express = require('express');
 var path = require('path');
 var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
+
 
 var index = require('./routes/index');
 var users = require('./routes/users');
@@ -30,8 +34,43 @@ app.use('/', index);
 app.use('/users', users);
 
 // API
-require('./routes/api/visits')(app);
+if (cluster.isMaster) {
+    // Keep track of http requests
+      let numReqs = 0;
+      setInterval(() => {
+        console.log(`numReqs = ${numReqs}`);
+      }, 1000);
 
+      // Count requests
+      function messageHandler(msg) {
+        if (msg.cmd && msg.cmd === 'notifyRequest') {
+          numReqs += 1;
+        }
+      }
+    const cpuCount = os.cpus().length;
+    for (let i = 0; i < cpuCount; i++) {
+        cluster.fork();
+    }
+
+     for (const id in cluster.workers) {
+        cluster.workers[id].on('message', messageHandler);
+      }
+    // Restarting the fork process as they will terminate due to exceptions
+    cluster.on('exit', (worker) => {
+        console.log(worker.id, ' is terminated!');
+        cluster.fork();
+    });
+}
+else{
+        http.Server((req, res) => {
+        res.end('The Bee Hive');
+            // Notify master about the request
+            process.send({ cmd: 'notifyRequest' });
+          }).listen(3000);
+
+    console.log(`Worker ${process.pid} started`);
+}
+require('./routes/api/visits')(app);
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
   var err = new Error('Not Found');
